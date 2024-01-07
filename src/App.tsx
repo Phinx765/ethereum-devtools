@@ -804,6 +804,16 @@ function AbiMethodForm (props: AbiMethodFormProps) {
                     }
                   }
                   newArgs[i] = val
+                  if (input.type === 'bool') {
+                    let bVal = false
+                    if (val) {
+                      if (val == '1' || val == 'true') {
+                        bVal = true
+                      }
+                    }
+                    newArgs[i] = bVal
+                  }
+                  console.log('new args', newArgs)
                   localStorage.setItem(cacheKey, JSON.stringify(newArgs))
                   setArgs(newArgs)
                 }}
