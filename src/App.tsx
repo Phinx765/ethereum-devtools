@@ -807,7 +807,7 @@ function AbiMethodForm (props: AbiMethodFormProps) {
                   if (input.type === 'bool') {
                     let bVal = false
                     if (val) {
-                      if (val == '1' || val == 'true') {
+                      if (val === '1' || val === 'true') {
                         bVal = true
                       }
                     }

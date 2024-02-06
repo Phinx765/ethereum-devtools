@@ -66,14 +66,21 @@
 - Keystore encrypt and decrypt
 - HD wallet key generator
 
+## Requirement
+node 14 | node 16
+
 ## Development
 
 ```bash
-npm install
+pnpm install
 ```
 
 ```bash
-npm run start
+pnpm start
+```
+
+```bash
+pnpm build
 ```
 
 ## License
