@@ -16,6 +16,7 @@
     "buffer": "^6.0.3",
     "cids": "^1.1.9",
     "content-hash": "^2.5.2",
+    "eslint": "^7.11.0",
     "eth-ens-namehash": "^2.0.8",
     "eth-sig-util": "^3.0.1",
     "ether-converter": "0.0.13",
@@ -60,5 +61,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "react-refresh": "^0.14.2"
   }
 }
