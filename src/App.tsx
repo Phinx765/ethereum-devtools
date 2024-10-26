@@ -12,27 +12,33 @@ import {
   Wallet,
   Signer,
   providers,
-  utils
+  utils,
+  ContractFactory
 } from 'ethers'
-// @ts-ignore
+import {
+  ContractFactory as ZkSyncContractFactory,
+  Web3Provider as ZkSyncWeb3Provider
+} from 'zksync-ethers' // era
 import InputDecoder from 'ethereum-input-data-decoder'
 import nativeAbis from './abi'
+import CustomERC20Artifact from './deploy/CustomERC20.json'
+import ZkSyncCustomERC20Artifact from './deploy/ZkSyncCustomERC20.json'
 import CID from 'cids'
 
-const BlockDater = require('ethereum-block-by-date')
-const { DateTime } = require('luxon')
-const fourByte = require('4byte')
-const Buffer = require('buffer/').Buffer
-const sigUtil = require('eth-sig-util')
-const zksync = require('zksync')
-const etherConverter = require('ether-converter') // TODO: types
-const privateKeyToAddress = require('ethereum-private-key-to-address')
-const privateKeyToPublicKey = require('ethereum-private-key-to-public-key')
-const publicKeyToAddress = require('ethereum-public-key-to-address')
-const base58 = require('bs58') // TODO: types
-const contentHash = require('content-hash') // TODO: types
-//const namehash = require('eth-ens-namehash') // namehash.hash(...)
-const contentHash2 = require('@ensdomains/content-hash')
+import BlockDater from 'ethereum-block-by-date'
+import { DateTime } from 'luxon'
+import fourByte from '4byte'
+import sigUtil from 'eth-sig-util'
+import zksync from 'zksync' // v1
+//import namehash from 'eth-ens-namehash' // namehash.hash(...)
+import contentHash2 from '@ensdomains/content-hash'
+import etherConverter from 'ether-converter'
+import privateKeyToAddress from 'ethereum-private-key-to-address'
+import privateKeyToPublicKey from 'ethereum-private-key-to-public-key'
+import publicKeyToAddress from 'ethereum-public-key-to-address'
+import base58 from 'bs58'
+import contentHash from 'content-hash'
+import { Buffer } from 'buffer'
 
   // utils available as globals
 ;(window as any).BigNumber = BigNumber
@@ -250,11 +256,11 @@ function CustomTx (props: any = {}) {
           }
         }
 
-        res = await wallet.call(txData, _blockTag)
+        res = await wallet.provider.call(txData, _blockTag)
       } else if (methodType === 'populate') {
         res = await wallet.populateTransaction(txData)
       } else if (methodType === 'estimate') {
-        res = await wallet.estimateGas(txData)
+        res = await wallet.provider.estimateGas(txData)
       } else if (methodType === 'sign') {
         res = await wallet.signTransaction(txData)
       } else {
@@ -1853,12 +1859,14 @@ function Base58Coder (props: any) {
   const decode = () => {
     try {
       setResult(null)
-      const base58content = base58.decode(decodeValue)
-      setResult(
-        `0x${Buffer.from(base58content).toString('hex')}\n${Buffer.from(
-          base58content
-        ).toString()}`
-      )
+      if (decodeValue) {
+        const base58content = base58.decode(decodeValue)
+        setResult(
+          `0x${Buffer.from(base58content).toString('hex')}\n${Buffer.from(
+            base58content
+          ).toString()}`
+        )
+      }
     } catch (err) {
       alert(err.message)
     }
@@ -3070,7 +3078,7 @@ function DecryptMessage (props: any) {
 
 function GasCostCalculator (props: any) {
   const { provider } = props
-  const defaultGasLimit = '2100'
+  const defaultGasLimit = '21000'
   const [ethUsdPrice, setEthUsdPrice] = useState(
     localStorage.getItem('gasCostCalculatorEthUsdPrice') || ''
   )
@@ -3080,7 +3088,11 @@ function GasCostCalculator (props: any) {
   const [gasLimit, setGasLimit] = useState(
     localStorage.getItem('gasCostCalculatorGasLimit') || defaultGasLimit
   )
-  const [result, setResult] = useState<any>('')
+  const [resultEth, setResultEth] = useState<any>('')
+  const [resultUsd, setResultUsd] = useState<any>('')
+  const [isWei, setIsWei] = useState<any>(
+    localStorage.getItem('gasCostCalculatorIsWei') === 'true'
+  )
   const [usingCustomGasPrice, setUsingCustomGasPrice] = useState(false)
   const [usingCustomEthUsdPrice, setUsingCustomEthUsdPrice] = useState(false)
   useEffect(() => {
@@ -3092,6 +3104,9 @@ function GasCostCalculator (props: any) {
   useEffect(() => {
     localStorage.setItem('gasCostCalculatorGasLimit', gasLimit || '')
   }, [gasLimit])
+  useEffect(() => {
+    localStorage.setItem('gasCostCalculatorIsWei', isWei)
+  }, [isWei])
 
   useEffect(() => {
     async function getGasPrice () {
@@ -3123,26 +3138,30 @@ function GasCostCalculator (props: any) {
 
   const calculate = useCallback(async () => {
     try {
-      setResult('')
+      setResultEth('')
+      setResultUsd('')
       const _gasPrice = Number(gasPrice)
       const _gasLimit = Number(gasLimit)
       const _ethUsdPrice = Number(ethUsdPrice)
-      const requiredGas = Number(
-        utils.formatUnits(
-          utils.parseUnits(
-            (_gasPrice * _gasLimit * _ethUsdPrice).toString(),
-            9
-          ),
-          18
-        )
+      const _estimateEth = (_gasPrice * _gasLimit).toFixed(isWei ? 18 : 9)
+      const estimateEth = utils.formatUnits(
+        utils.parseUnits(_estimateEth, isWei ? 0 : 9),
+        18
       )
-      const result = Number(requiredGas.toFixed(2)).toString()
-      setResult(result)
+      const _estimateUsd = (_gasPrice * _gasLimit * _ethUsdPrice).toFixed(
+        isWei ? 18 : 9
+      )
+      const estimateUsd = utils.formatUnits(
+        utils.parseUnits(_estimateUsd.toString(), isWei ? 0 : 9),
+        18
+      )
+      setResultEth(estimateEth)
+      setResultUsd(estimateUsd)
     } catch (err) {
       alert(err.message)
       console.error(err)
     }
-  }, [ethUsdPrice, gasPrice, gasLimit])
+  }, [ethUsdPrice, gasPrice, gasLimit, isWei])
 
   useEffect(() => {
     if (
@@ -3168,9 +3187,15 @@ function GasCostCalculator (props: any) {
     setEthUsdPrice('')
     setGasPrice('')
     setGasLimit(defaultGasLimit)
-    setResult('')
+    setResultEth('')
+    setResultUsd('')
     setUsingCustomGasPrice(false)
     setUsingCustomEthUsdPrice(false)
+  }
+
+  const updateInputType = (event: any) => {
+    const { value } = event.target
+    setIsWei(value === 'wei')
   }
 
   const handleEthUsdPriceChange = (value: string) => {
@@ -3188,6 +3213,7 @@ function GasCostCalculator (props: any) {
     event.preventDefault()
     calculate()
   }
+
   return (
     <div>
       <form onSubmit={handleSubmit}>
@@ -3197,7 +3223,28 @@ function GasCostCalculator (props: any) {
           onChange={handleEthUsdPriceChange}
           placeholder='1500'
         />
-        <label>Gas price (gwei)</label>
+        <label>
+          Gas price (
+          <span style={{ display: 'inline-block', marginRight: '0.5rem' }}>
+            <input
+              type='radio'
+              value='gwei'
+              checked={!isWei}
+              onChange={updateInputType}
+            />
+            gwei
+          </span>
+          <span>
+            <input
+              type='radio'
+              value='wei'
+              checked={isWei}
+              onChange={updateInputType}
+            />
+            wei
+          </span>
+          )
+        </label>
         <TextInput
           value={gasPrice}
           onChange={handleGasPriceChange}
@@ -3216,7 +3263,8 @@ function GasCostCalculator (props: any) {
           <button onClick={reset}>reset</button>
         </div>
       </form>
-      <div style={{ marginTop: '1rem' }}>Gas cost (USD): {result}</div>
+      <div style={{ marginTop: '1rem' }}>Gas cost (ETH): {resultEth}</div>
+      <div style={{ marginTop: '1rem' }}>Gas cost (USD): {resultUsd}</div>
     </div>
   )
 }
@@ -3337,6 +3385,141 @@ function FourByteDictionary (props: any) {
       </form>
       <div>
         <pre>{output}</pre>
+      </div>
+    </div>
+  )
+}
+
+function DeployERC20 (props: any) {
+  const { wallet } = props
+  const [name, setName] = useState(
+    localStorage.getItem('deployERC20Name') || ''
+  )
+  const [symbol, setSymbol] = useState(
+    localStorage.getItem('deployERC20Symbol') || ''
+  )
+  const [decimals, setDecimals] = useState(
+    localStorage.getItem('deployERC20Decimals') || '18'
+  )
+  const [initialSupply, setInitialSupply] = useState(
+    localStorage.getItem('deployERC20InitialSupply') || ''
+  )
+  const [result, setResult] = useState<any>(null)
+  useEffect(() => {
+    localStorage.setItem('deployERC20Name', name || '')
+  }, [name])
+  useEffect(() => {
+    localStorage.setItem('deployERC20Symbol', symbol || '')
+  }, [symbol])
+  useEffect(() => {
+    localStorage.setItem('deployERC20Decimals', decimals || '')
+  }, [decimals])
+  useEffect(() => {
+    localStorage.setItem('deployERC20InitialSupply', initialSupply || '')
+  }, [initialSupply])
+  const handleNameChange = (value: string) => {
+    setName(value)
+  }
+  const handleSymbolChange = (value: string) => {
+    setSymbol(value)
+  }
+  const handleDecimalsChange = (value: string) => {
+    setDecimals(value)
+  }
+  const handleInitialSupplyChange = (value: string) => {
+    setInitialSupply(value)
+  }
+  async function deploy () {
+    try {
+      setResult(null)
+      if (!name) {
+        throw new Error('name is required')
+      }
+      if (!symbol) {
+        throw new Error('symbol is required')
+      }
+      if (!decimals) {
+        throw new Error('decimals is required')
+      }
+      if (!wallet) {
+        throw new Error('expected signer')
+      }
+      let factory: any
+      const chainId = Number(await wallet.getChainId())
+      const useZkSync = [324, 300].includes(chainId)
+      if (useZkSync) {
+        factory = new ZkSyncContractFactory(
+          ZkSyncCustomERC20Artifact.abi,
+          ZkSyncCustomERC20Artifact.bytecode,
+          new ZkSyncWeb3Provider((window as any).ethereum, 'any').getSigner()
+        )
+      } else {
+        factory = new ContractFactory(
+          CustomERC20Artifact.abi,
+          CustomERC20Artifact.bytecode,
+          wallet
+        )
+      }
+      setResult('deploying...')
+      const contract = await factory.deploy(
+        name,
+        symbol,
+        utils.parseUnits(initialSupply || '0', decimals)
+      )
+      const receipt = await contract.deployTransaction.wait()
+      setResult(JSON.stringify(receipt, null, 2))
+    } catch (err) {
+      setResult(null)
+      alert(err.message)
+      console.error(err)
+    }
+  }
+  const handleSubmit = (event: any) => {
+    event.preventDefault()
+    deploy()
+  }
+  return (
+    <div>
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label>Name (string) *</label>
+          <TextInput
+            value={name}
+            onChange={handleNameChange}
+            placeholder='MyToken'
+          />
+        </div>
+        <div>
+          <label>Symbol (string) *</label>
+          <TextInput
+            value={symbol}
+            onChange={handleSymbolChange}
+            placeholder='TKN'
+          />
+        </div>
+        <div>
+          <label>Decimals (uint256) *</label>
+          <TextInput
+            value={decimals}
+            onChange={handleDecimalsChange}
+            readOnly={true}
+            placeholder='18'
+          />
+        </div>
+        <div>
+          <label>Initial Supply (uint256)</label>
+          <TextInput
+            value={initialSupply}
+            onChange={handleInitialSupplyChange}
+            placeholder='1000'
+          />
+        </div>
+        <div style={{ marginTop: '0.5rem' }}>
+          <button type='submit'>Deploy</button>
+        </div>
+      </form>
+      <div>
+        <pre>{result}</pre>
       </div>
     </div>
   )
@@ -4102,6 +4285,11 @@ or JSON ABI
       <Fieldset legend='4byte dictionary'>
         <section>
           <FourByteDictionary />
+        </section>
+      </Fieldset>
+      <Fieldset legend='Deploy ERC20'>
+        <section>
+          <DeployERC20 wallet={wallet} />
         </section>
       </Fieldset>
       <Fieldset legend='Send ETH'>
